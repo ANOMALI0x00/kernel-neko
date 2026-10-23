@@ -4,7 +4,7 @@ Repositorio unificado de compilación y empaquetado de kernels para **Neko Void 
 
 ---
 
-## 🚀 Variantes Disponibles
+## Variantes Disponibles
 
 El proyecto soporta 14 variantes optimizadas:
 
@@ -27,7 +27,7 @@ El proyecto soporta 14 variantes optimizadas:
 
 ---
 
-## 🛠️ Requisitos Previos en Void Linux
+## Requisitos Previos en Void Linux
 
 Instala las herramientas de compilación necesarias:
 
@@ -38,7 +38,7 @@ sudo xbps-install -y base-devel bc kmod elfutils-devel openssl-devel flex bison 
 
 ---
 
-## 🔨 Instrucciones de Compilación
+## Instrucciones de Compilación
 
 ### 1. Listar variantes y niveles de arquitectura
 ```bash
@@ -81,7 +81,7 @@ Por defecto, la compilación se realiza en **x86-64-v1**, lo que significa que e
 
 ---
 
-## 📦 Empaquetado e Instalación en Void Linux con `xbps-src`
+## Empaquetado e Instalación en Void Linux con `xbps-src`
 
 Una vez finalizada la compilación de la variante (por ejemplo `bore`):
 

@@ -2,7 +2,7 @@
 
 Colección completa y centralizada de kernels optimizados para **Neko Void Linux**.
 
-## 📁 Variantes Disponibles
+## Variantes Disponibles
 
 | Carpeta de Variante | Planificador / Núcleo | Enfoque / Uso Principal |
 | :--- | :--- | :--- |
@@ -20,7 +20,7 @@ Colección completa y centralizada de kernels optimizados para **Neko Void Linux
 | **`Kernel-Neko-server`** | **Server** | Rendimiento y cálculo continuo para servidores |
 | **`Kernel-Neko-rc`** | **Release Candidate**| Pruebas de las últimas ramas upstream del kernel |
 
-## 🛠️ Estructura de Cada Variante
+## Estructura de Cada Variante
 
 Cada carpeta de variante incluye:
 - `config`: Archivo de configuración oficial del kernel.
