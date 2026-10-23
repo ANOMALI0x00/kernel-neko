@@ -33,6 +33,9 @@ on:
           - v2
           - v3
 
+permissions:
+  contents: write
+
 jobs:
   build-kernel:
     runs-on: ubuntu-latest
@@ -60,12 +63,14 @@ jobs:
           echo "TAR_FILE=${TAR_FILE}" >> $GITHUB_ENV
           TAR_NAME=$(basename "${TAR_FILE}")
           echo "TAR_NAME=${TAR_NAME}" >> $GITHUB_ENV
+          RELEASE_TAG="${TAR_NAME%.tar.gz}"
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
           sha256sum "${TAR_FILE}" > sha256sum.txt
 
       - name: 5. Publicar Release en GitHub
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v${{ inputs.variant }}-${{ github.run_id }}"
+          tag_name: "${{ env.RELEASE_TAG }}"
           name: "Kernel-Neko ${{ inputs.variant }} (${{ env.TAR_NAME }})"
           body: |
             ### Kernel-Neko ${{ inputs.variant }} para Neko Void Linux
@@ -73,6 +78,7 @@ jobs:
 
             - **Variante**: ${{ inputs.variant }}
             - **Artefacto**: ${{ env.TAR_NAME }}
+            - **Nivel CPU**: ${{ inputs.march }}
             - **Checksum SHA256**:
             ```
             $(cat sha256sum.txt)

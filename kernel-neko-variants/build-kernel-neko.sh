@@ -80,7 +80,7 @@ JOBS="${NEKO_JOBS:-$(nproc)}"
 MARCH="${MARCH_ARG:-${NEKO_MARCH:-1}}"
 [ "$LITE" = "yes" ] && MARCH=1
 REVISION="${NEKO_REVISION:-1}"
-RELEASE_URL="${NEKO_RELEASE_URL:-https://github.com/Neko-Void-Linux/Kernel-Neko/releases/download}"
+RELEASE_URL="${NEKO_RELEASE_URL:-https://github.com/ANOMALI0x00/kernel-neko/releases/download}"
 
 if [ "$MARCH" -gt 1 ]; then
     TARGET_PKG="${NEKO_PKG}-v${MARCH}"
@@ -311,7 +311,7 @@ archs="x86_64*"
 short_desc="${TARGET_DESC} for Neko Void Linux"
 maintainer="Neko Void Linux <nekovoid@local>"
 license="GPL-2.0-only"
-homepage="https://github.com/Neko-Void-Linux/Kernel-Neko"
+homepage="https://github.com/ANOMALI0x00/kernel-neko"
 distfiles="${RELEASE_URL}/${TARGET_PKG}-${KVER}/${TARNAME}"
 checksum=${SHA}
 create_wrksrc=yes
