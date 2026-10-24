@@ -1,0 +1,202 @@
+name: Compile Neko Void Kernel (with RT over RC)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  check-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      use_self_hosted: ${{ steps.check.outputs.use_self_hosted }}
+    steps:
+      - name: Check self-hosted runner availability
+        id: check
+        run: |
+          # Intentar consultar la API de GitHub
+          RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runners 2>&1)
+          
+          # Verificar si la respuesta es válida y hay runners disponibles
+          if echo "$RESPONSE" | grep -q "null"; then
+            echo "API no disponible o sin permisos. Usando ubuntu-latest."
+            echo "use_self_hosted=false" >> $GITHUB_OUTPUT
+          elif echo "$RESPONSE" | jq -e '[.runners[] | select(.status=="online" and .busy==false)] | length > 0' > /dev/null 2>&1; then
+            echo "Self-hosted runner disponible."
+            echo "use_self_hosted=true" >> $GITHUB_OUTPUT
+          else
+            echo "No hay self-hosted runners disponibles. Usando ubuntu-latest."
+            echo "use_self_hosted=false" >> $GITHUB_OUTPUT
+          fi
+
+  build-kernel:
+    needs: check-runner
+    runs-on: ${{ needs.check-runner.outputs.use_self_hosted == 'true' && 'self-hosted' || 'ubuntu-latest' }}
+    
+    container:
+      image: ghcr.io/void-linux/void-glibc-full:latest
+      options: --user root
+
+    steps:
+      - name: 1. Install system dependencies
+        run: |
+          xbps-install -Syu --repository=https://repo-de.voidlinux.org/current/ xbps 
+          xbps-install -Syu --repository=https://repo-de.voidlinux.org/current/ base-devel git bc kmod elfutils-devel bash cpio xz lz4 zstd flex bison openssl-devel curl pahole tar python3 patch wget rsync -y
+
+      - name: 2. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: 3. Clone kernel sources
+        run: |
+          git clone --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/rt/linux-rt-devel.git linux-src
+          cd linux-src
+          sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -rt/' Makefile
+          cd ..
+
+      - name: 4. Get Void base config
+        run: |
+          cd linux-src
+          wget -O .config https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux7.2/files/x86_64-dotconfig
+          cd ..
+
+      - name: 5. Apply Void patch
+        run: |
+          cd linux-src
+          wget -O fixdep-largefile.patch https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux7.2/patches/fixdep-largefile.patch
+          patch -p1 -N --batch < fixdep-largefile.patch
+          cd ..
+
+      - name: 7. Adjust configuration
+        run: |
+          cd linux-src
+          
+          scripts/config --disable CONFIG_LOCALVERSION_AUTO
+          scripts/config --set-str CONFIG_LOCALVERSION "-neko"
+          
+          echo "KCFLAGS=-O2 -march=x86-64-v3 -mtune=generic" >> $GITHUB_ENV
+          echo "HOSTCFLAGS=-O2" >> $GITHUB_ENV
+          scripts/config --enable CONFIG_LTO_NONE
+          
+          scripts/config --disable CONFIG_GENERIC_CPU
+          scripts/config --enable CONFIG_SCHED_SMT    
+          scripts/config --enable CONFIG_SCHED_MC
+          
+          scripts/config --disable CONFIG_HZ_300
+          scripts/config --enable CONFIG_HZ_1000
+          scripts/config --set-val CONFIG_HZ 1000
+          scripts/config --disable CONFIG_HZ_PERIODIC
+          scripts/config --enable CONFIG_NO_HZ_IDLE
+          scripts/config --disable CONFIG_NO_HZ_FULL
+          scripts/config --enable CONFIG_NO_HZ
+          
+          scripts/config --disable CONFIG_PREEMPT_VOLUNTARY
+          scripts/config --disable CONFIG_PREEMPT_LL
+          scripts/config --disable CONFIG_PREEMPT_NONE
+          scripts/config --disable CONFIG_PREEMPT_DYNAMIC
+          scripts/config --enable CONFIG_PREEMPT_RT
+          
+          scripts/config --disable CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS
+          scripts/config --enable CONFIG_TRANSPARENT_HUGEPAGE_MADVISE
+          scripts/config --enable CONFIG_MODULE_COMPRESS_ZSTD
+          scripts/config --set-str CONFIG_DEFAULT_IOSCHED "mq-deadline"
+          
+          scripts/config --disable CONFIG_DEBUG_INFO
+          scripts/config --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT
+          scripts/config --disable CONFIG_DEBUG_INFO_REDUCED
+          scripts/config --disable CONFIG_DEBUG_INFO_BTF
+          scripts/config --disable CONFIG_DEBUG_VM
+          scripts/config --disable CONFIG_DEBUG_KERNEL
+          scripts/config --disable CONFIG_PROVE_LOCKING
+          scripts/config --disable CONFIG_LOCK_STAT
+          scripts/config --disable CONFIG_LATENCYTOP
+          
+          scripts/config --disable CONFIG_KALLSYMS
+          scripts/config --disable CONFIG_KALLSYMS_ALL
+          scripts/config --disable CONFIG_PROFILING
+          scripts/config --disable CONFIG_KPROBES
+          scripts/config --disable CONFIG_UPROBES
+          scripts/config --disable CONFIG_FTRACE
+          scripts/config --disable CONFIG_FUNCTION_TRACER
+          scripts/config --disable CONFIG_TRACING
+          scripts/config --disable CONFIG_BLK_DEV_IO_TRACE
+          scripts/config --disable CONFIG_BPF_SYSCALL        
+          scripts/config --disable CONFIG_USERFAULTFD        
+          scripts/config --disable CONFIG_MAGIC_SYSRQ
+          
+          scripts/config --disable CONFIG_MODULE_SIG
+          scripts/config --set-str CONFIG_SYSTEM_TRUSTED_KEYS ""
+          
+          make olddefconfig
+          cd ..
+
+      - name: 8. Compile kernel and modules
+        run: |
+          cd linux-src
+          export KBUILD_BUILD_TIMESTAMP=$(date -u -d @0 +"%Y-%m-%d %H:%M:%S")
+          export KBUILD_BUILD_USER=voidlinux
+          export KBUILD_BUILD_HOST=voidlinux
+          export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+          
+          JOBS="$(nproc)"
+          if [ "$JOBS" -gt 8 ]; then JOBS=8; fi
+          echo "Building with -j${JOBS}"
+          
+          make -j"${JOBS}" prepare
+          make -j"${JOBS}" bzImage modules
+
+      - name: 10. Install kernel, modules, and compile headers
+        if: success()
+        run: |
+          cd linux-src
+          KERNEL_RELEASE=$(make kernelrelease)
+          echo "KERNEL_RELEASE=${KERNEL_RELEASE}" >> $GITHUB_ENV
+          
+          make INSTALL_MOD_PATH=$GITHUB_WORKSPACE/modules modules_install
+          
+          mkdir -p $GITHUB_WORKSPACE/pkg/boot
+          cp arch/x86/boot/bzImage $GITHUB_WORKSPACE/pkg/boot/vmlinuz-${KERNEL_RELEASE}
+          cp System.map $GITHUB_WORKSPACE/pkg/boot/System.map-${KERNEL_RELEASE}
+          cp .config $GITHUB_WORKSPACE/pkg/boot/config-${KERNEL_RELEASE}
+          
+          mkdir -p $GITHUB_WORKSPACE/pkg/lib/modules
+          mv $GITHUB_WORKSPACE/modules/lib/modules/${KERNEL_RELEASE} $GITHUB_WORKSPACE/pkg/lib/modules/
+          
+          HEADERS_DIR=$GITHUB_WORKSPACE/pkg/usr/src/linux-headers-${KERNEL_RELEASE}
+          mkdir -p $HEADERS_DIR/arch/x86
+          
+          cp Makefile .config Module.symvers System.map $HEADERS_DIR/
+          cp -a scripts include $HEADERS_DIR/
+          cp -a arch/x86/include $HEADERS_DIR/arch/x86/
+          cp arch/x86/Makefile $HEADERS_DIR/arch/x86/ || true
+          
+          if [ -f tools/objtool/objtool ]; then
+            mkdir -p $HEADERS_DIR/tools/objtool
+            cp tools/objtool/objtool $HEADERS_DIR/tools/objtool/
+          fi
+          
+          find $HEADERS_DIR/scripts -type f -name '*.o' -delete
+          
+          cd $GITHUB_WORKSPACE/pkg/lib/modules/${KERNEL_RELEASE}
+          rm -f build source
+          ln -sf /usr/src/linux-headers-${KERNEL_RELEASE} build
+          ln -sf /usr/src/linux-headers-${KERNEL_RELEASE} source
+          cd $GITHUB_WORKSPACE
+
+      - name: 11. Package artifacts
+        if: success()
+        run: |
+          cd $GITHUB_WORKSPACE/pkg
+          tar -czf ../neko-kernel-void-${KERNEL_RELEASE}.tar.gz .
+          cd ..
+          
+      - name: Upload to Release 
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          files: |
+            neko-kernel-void-*.tar.gz
